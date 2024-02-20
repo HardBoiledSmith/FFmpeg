@@ -364,14 +364,19 @@ static int configure_video_device(AVFormatContext *s, AVCaptureDevice *video_dev
 
                 selected_format = format;
 
+                BOOL isBestMatchFound = NO;
                 for (range in [format valueForKey:@"videoSupportedFrameRateRanges"]) {
                     double max_framerate;
 
                     [[range valueForKey:@"maxFrameRate"] getValue:&max_framerate];
                     if (fabs (framerate - max_framerate) < 0.01) {
                         selected_range = range;
+                        isBestMatchFound = YES;
                         break;
                     }
+                }
+                if (isBestMatchFound) {
+                    break;
                 }
             }
         }
@@ -398,8 +403,10 @@ static int configure_video_device(AVFormatContext *s, AVCaptureDevice *video_dev
             }
             if (selected_range) {
                 NSValue *min_frame_duration = [selected_range valueForKey:@"minFrameDuration"];
+                NSValue *max_frame_duration = [selected_range valueForKey:@"maxFrameDuration"];
+
                 [video_device setValue:min_frame_duration forKey:@"activeVideoMinFrameDuration"];
-                [video_device setValue:min_frame_duration forKey:@"activeVideoMaxFrameDuration"];
+                [video_device setValue:max_frame_duration forKey:@"activeVideoMaxFrameDuration"];
             }
         } else {
             av_log(s, AV_LOG_ERROR, "Could not lock device for configuration.\n");
@@ -407,6 +414,10 @@ static int configure_video_device(AVFormatContext *s, AVCaptureDevice *video_dev
         }
     } @catch(NSException *e) {
         av_log(ctx, AV_LOG_WARNING, "Configuration of video device failed, falling back to default.\n");
+        av_log(ctx, AV_LOG_DEBUG, "exception: %s, reason: %s\n", [e.name UTF8String], [e.reason UTF8String]);
+        NSArray *symbols = [e callStackSymbols];
+        NSString *stackTrace = [symbols componentsJoinedByString:@"\n"];
+        av_log(ctx, AV_LOG_DEBUG, "Stack trace:\n%s\n", [stackTrace UTF8String]);
     }
 
     return 0;
@@ -770,8 +781,11 @@ static int avf_read_header(AVFormatContext *s)
     AVCaptureDevice *video_device = nil;
     AVCaptureDevice *audio_device = nil;
     // Find capture device
-    NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
-    NSArray *devices_muxed = [AVCaptureDevice devicesWithMediaType:AVMediaTypeMuxed];
+    AVCaptureDeviceDiscoverySession *deviceDiscoverySession = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:@[AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureDeviceTypeExternal] mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionUnspecified];
+    NSArray<AVCaptureDevice *> *devices = deviceDiscoverySession.devices;
+
+    AVCaptureDeviceDiscoverySession *muxedDiscoverySession = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:@[AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureDeviceTypeExternal] mediaType:AVMediaTypeMuxed position:AVCaptureDevicePositionUnspecified];
+    NSArray<AVCaptureDevice *> *devices_muxed = muxedDiscoverySession.devices;
 
     ctx->num_video_devices = [devices count] + [devices_muxed count];
 
@@ -943,14 +957,14 @@ static int avf_read_header(AVFormatContext *s)
         if (!strncmp(ctx->audio_filename, "default", 7)) {
             audio_device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
         } else {
-        NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeAudio];
+            NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeAudio];
 
-        for (AVCaptureDevice *device in devices) {
-            if (!strncmp(ctx->audio_filename, [[device localizedName] UTF8String], strlen(ctx->audio_filename))) {
-                audio_device = device;
-                break;
+            for (AVCaptureDevice *device in devices) {
+                if (!strncmp(ctx->audio_filename, [[device localizedName] UTF8String], strlen(ctx->audio_filename))) {
+                    audio_device = device;
+                    break;
+                }
             }
-        }
         }
 
         if (!audio_device) {

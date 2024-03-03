@@ -414,10 +414,10 @@ static int configure_video_device(AVFormatContext *s, AVCaptureDevice *video_dev
         }
     } @catch(NSException *e) {
         av_log(ctx, AV_LOG_WARNING, "Configuration of video device failed, falling back to default.\n");
-        av_log(ctx, AV_LOG_DEBUG, "exception: %s, reason: %s\n", [e.name UTF8String], [e.reason UTF8String]);
+        av_log(ctx, AV_LOG_WARNING, "exception: %s, reason: %s\n", [e.name UTF8String], [e.reason UTF8String]);
         NSArray *symbols = [e callStackSymbols];
         NSString *stackTrace = [symbols componentsJoinedByString:@"\n"];
-        av_log(ctx, AV_LOG_DEBUG, "Stack trace:\n%s\n", [stackTrace UTF8String]);
+        av_log(ctx, AV_LOG_WARNING, "Stack trace:\n%s\n", [stackTrace UTF8String]);
     }
 
     return 0;
@@ -780,6 +780,9 @@ static int avf_read_header(AVFormatContext *s)
     AVFContext *ctx         = (AVFContext*)s->priv_data;
     AVCaptureDevice *video_device = nil;
     AVCaptureDevice *audio_device = nil;
+
+    av_log(ctx, AV_LOG_INFO, "libavdevice modified by HBsmith, Inc. (n6.6.1-hbsmith)\n");
+
     // Find capture device
     AVCaptureDeviceDiscoverySession *deviceDiscoverySession = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:@[AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureDeviceTypeExternal] mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionUnspecified];
     NSArray<AVCaptureDevice *> *devices = deviceDiscoverySession.devices;

@@ -804,13 +804,15 @@ static int avf_read_header(AVFormatContext *s)
         av_log(ctx, AV_LOG_INFO, "AVFoundation video devices:\n");
         for (AVCaptureDevice *device in devices) {
             const char *name = [[device localizedName] UTF8String];
+            const char *uniqueID = [[device uniqueID] UTF8String];
             index            = [devices indexOfObject:device];
-            av_log(ctx, AV_LOG_INFO, "[%d] %s\n", index, name);
+            av_log(ctx, AV_LOG_INFO, "[%d] %s (%s)\n", index, name, uniqueID);
         }
         for (AVCaptureDevice *device in devices_muxed) {
             const char *name = [[device localizedName] UTF8String];
+            const char *uniqueID = [[device uniqueID] UTF8String];
             index            = [devices count] + [devices_muxed indexOfObject:device];
-            av_log(ctx, AV_LOG_INFO, "[%d] %s\n", index, name);
+            av_log(ctx, AV_LOG_INFO, "[%d] %s (%s)\n", index, name, uniqueID);
         }
 #if !TARGET_OS_IPHONE && __MAC_OS_X_VERSION_MIN_REQUIRED >= 1070
         if (num_screens > 0) {
@@ -826,8 +828,9 @@ static int avf_read_header(AVFormatContext *s)
         devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeAudio];
         for (AVCaptureDevice *device in devices) {
             const char *name = [[device localizedName] UTF8String];
+            const char *uniqueID = [[device uniqueID] UTF8String];
             int index  = [devices indexOfObject:device];
-            av_log(ctx, AV_LOG_INFO, "[%d] %s\n", index, name);
+            av_log(ctx, AV_LOG_INFO, "[%d] %s (%s)\n", index, name, uniqueID);
         }
          goto fail;
     }
@@ -984,13 +987,13 @@ static int avf_read_header(AVFormatContext *s)
 
     if (video_device) {
         if (ctx->video_device_index < ctx->num_video_devices) {
-            av_log(s, AV_LOG_DEBUG, "'%s' opened\n", [[video_device localizedName] UTF8String]);
+            av_log(s, AV_LOG_INFO, "video device '%s (%s)' opened\n", [[video_device localizedName] UTF8String], [[video_device uniqueID] UTF8String]);
         } else {
-            av_log(s, AV_LOG_DEBUG, "'%s' opened\n", [[video_device description] UTF8String]);
+            av_log(s, AV_LOG_INFO, "video device '%s (%s)' opened\n", [[video_device description] UTF8String], [[video_device uniqueID] UTF8String]);
         }
     }
     if (audio_device) {
-        av_log(s, AV_LOG_DEBUG, "audio device '%s' opened\n", [[audio_device localizedName] UTF8String]);
+        av_log(s, AV_LOG_INFO, "audio device '%s (%s)' opened\n", [[audio_device localizedName] UTF8String], [[audio_device uniqueID] UTF8String]);
     }
 
     // Initialize capture session

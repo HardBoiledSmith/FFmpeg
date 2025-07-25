@@ -41,6 +41,9 @@
 #include "libavutil/imgutils.h"
 #include "avdevice.h"
 
+#define CLEANUP_DEVICE_ID(s) [[s stringByReplacingOccurrencesOfString:@":" withString:@"."] UTF8String]
+#define CLEANUP_HBSMITH_PREFIX(s) (char *)[[[NSString stringWithUTF8String:s] stringByReplacingOccurrencesOfString:@"hbsmith-" withString:@""] UTF8String]
+
 static const int avf_time_base = 1000000;
 
 static const AVRational avf_time_base_q = {
@@ -366,14 +369,19 @@ static int configure_video_device(AVFormatContext *s, AVCaptureDevice *video_dev
 
                 selected_format = format;
 
+                BOOL isBestMatchFound = NO;
                 for (range in [format valueForKey:@"videoSupportedFrameRateRanges"]) {
                     double max_framerate;
 
                     [[range valueForKey:@"maxFrameRate"] getValue:&max_framerate];
                     if (fabs (framerate - max_framerate) < 0.01) {
                         selected_range = range;
+                        isBestMatchFound = YES;
                         break;
                     }
+                }
+                if (isBestMatchFound) {
+                    break;
                 }
             }
         }
@@ -400,8 +408,10 @@ static int configure_video_device(AVFormatContext *s, AVCaptureDevice *video_dev
             }
             if (selected_range) {
                 NSValue *min_frame_duration = [selected_range valueForKey:@"minFrameDuration"];
+                NSValue *max_frame_duration = [selected_range valueForKey:@"maxFrameDuration"];
+
                 [video_device setValue:min_frame_duration forKey:@"activeVideoMinFrameDuration"];
-                [video_device setValue:min_frame_duration forKey:@"activeVideoMaxFrameDuration"];
+                [video_device setValue:max_frame_duration forKey:@"activeVideoMaxFrameDuration"];
             }
         } else {
             av_log(s, AV_LOG_ERROR, "Could not lock device for configuration.\n");
@@ -409,6 +419,10 @@ static int configure_video_device(AVFormatContext *s, AVCaptureDevice *video_dev
         }
     } @catch(NSException *e) {
         av_log(ctx, AV_LOG_WARNING, "Configuration of video device failed, falling back to default.\n");
+        av_log(ctx, AV_LOG_WARNING, "exception: %s, reason: %s\n", [e.name UTF8String], [e.reason UTF8String]);
+        NSArray *symbols = [e callStackSymbols];
+        NSString *stackTrace = [symbols componentsJoinedByString:@"\n"];
+        av_log(ctx, AV_LOG_WARNING, "Stack trace:\n%s\n", [stackTrace UTF8String]);
     }
 
     return 0;
@@ -829,6 +843,9 @@ static int avf_read_header(AVFormatContext *s)
     AVFContext *ctx         = (AVFContext*)s->priv_data;
     AVCaptureDevice *video_device = nil;
     AVCaptureDevice *audio_device = nil;
+
+    av_log(ctx, AV_LOG_INFO, "libavdevice modified by HBsmith, Inc. (n7.1.1-hbsmith)\n");
+
     // Find capture device
     NSArray *devices       = getDevicesWithMediaType(AVMediaTypeVideo);
     NSArray *devices_muxed = getDevicesWithMediaType(AVMediaTypeMuxed);
@@ -847,13 +864,15 @@ static int avf_read_header(AVFormatContext *s)
         av_log(ctx, AV_LOG_INFO, "AVFoundation video devices:\n");
         for (AVCaptureDevice *device in devices) {
             const char *name = [[device localizedName] UTF8String];
+            const char *uniqueID = CLEANUP_DEVICE_ID([device uniqueID]);
             index            = [devices indexOfObject:device];
-            av_log(ctx, AV_LOG_INFO, "[%d] %s\n", index, name);
+            av_log(ctx, AV_LOG_INFO, "[%d] %s (ID: hbsmith-%s)\n", index, name, uniqueID);
         }
         for (AVCaptureDevice *device in devices_muxed) {
             const char *name = [[device localizedName] UTF8String];
+            const char *uniqueID = CLEANUP_DEVICE_ID([device uniqueID]);
             index            = [devices count] + [devices_muxed indexOfObject:device];
-            av_log(ctx, AV_LOG_INFO, "[%d] %s\n", index, name);
+            av_log(ctx, AV_LOG_INFO, "[%d] %s (ID: hbsmith-%s)\n", index, name, uniqueID);
         }
 #if !TARGET_OS_IPHONE && __MAC_OS_X_VERSION_MIN_REQUIRED >= 1070
         if (num_screens > 0) {
@@ -869,8 +888,9 @@ static int avf_read_header(AVFormatContext *s)
         devices = getDevicesWithMediaType(AVMediaTypeAudio);
         for (AVCaptureDevice *device in devices) {
             const char *name = [[device localizedName] UTF8String];
+            const char *uniqueID = CLEANUP_DEVICE_ID([device uniqueID]);
             int index  = [devices indexOfObject:device];
-            av_log(ctx, AV_LOG_INFO, "[%d] %s\n", index, name);
+            av_log(ctx, AV_LOG_INFO, "[%d] %s (ID: hbsmith-%s)\n", index, name, uniqueID);
         }
          goto fail;
     }
@@ -938,10 +958,25 @@ static int avf_read_header(AVFormatContext *s)
                 video_device = device;
                 break;
             }
+
+            const char *uniqueID = CLEANUP_DEVICE_ID([device uniqueID]);
+            const char *video_filename = CLEANUP_HBSMITH_PREFIX(ctx->video_filename);
+            if (!strncmp(video_filename, uniqueID, strlen(video_filename))) {
+                video_device = device;
+                break;
+            }
         }
         // looking for muxed inputs
         for (AVCaptureDevice *device in devices_muxed) {
             if (!strncmp(ctx->video_filename, [[device localizedName] UTF8String], strlen(ctx->video_filename))) {
+                video_device = device;
+                ctx->video_is_muxed = 1;
+                break;
+            }
+
+            const char *uniqueID = CLEANUP_DEVICE_ID([device uniqueID]);
+            const char *video_filename = CLEANUP_HBSMITH_PREFIX(ctx->video_filename);
+            if (!strncmp(video_filename, uniqueID, strlen(video_filename))) {
                 video_device = device;
                 ctx->video_is_muxed = 1;
                 break;
@@ -1010,6 +1045,13 @@ static int avf_read_header(AVFormatContext *s)
                 audio_device = device;
                 break;
             }
+
+            const char *uniqueID = CLEANUP_DEVICE_ID([device uniqueID]);
+            const char *audio_filename = CLEANUP_HBSMITH_PREFIX(ctx->audio_filename);
+            if (!strncmp(audio_filename, uniqueID, strlen(audio_filename))) {
+                audio_device = device;
+                break;
+            }
         }
         }
 
@@ -1027,13 +1069,13 @@ static int avf_read_header(AVFormatContext *s)
 
     if (video_device) {
         if (ctx->video_device_index < ctx->num_video_devices) {
-            av_log(s, AV_LOG_DEBUG, "'%s' opened\n", [[video_device localizedName] UTF8String]);
+            av_log(s, AV_LOG_DEBUG, "video device '%s (ID: hbsmith-%s)' opened\n", [[video_device localizedName] UTF8String], CLEANUP_DEVICE_ID([video_device uniqueID]));
         } else {
-            av_log(s, AV_LOG_DEBUG, "'%s' opened\n", [[video_device description] UTF8String]);
+            av_log(s, AV_LOG_DEBUG, "video device '%s (ID: hbsmith-%s)' opened\n", [[video_device description] UTF8String], CLEANUP_DEVICE_ID([video_device uniqueID]));
         }
     }
     if (audio_device) {
-        av_log(s, AV_LOG_DEBUG, "audio device '%s' opened\n", [[audio_device localizedName] UTF8String]);
+        av_log(s, AV_LOG_DEBUG, "audio device '%s (ID: hbsmith-%s)' opened\n", [[audio_device localizedName] UTF8String], CLEANUP_DEVICE_ID([audio_device uniqueID]));
     }
 
     // Initialize capture session

@@ -844,7 +844,7 @@ static int avf_read_header(AVFormatContext *s)
     AVCaptureDevice *video_device = nil;
     AVCaptureDevice *audio_device = nil;
 
-    av_log(ctx, AV_LOG_WARNING, "libavdevice modified by HBsmith, Inc. (n7.1.1-hbsmith)\n");
+    av_log(ctx, AV_LOG_INFO, "libavdevice modified by HBsmith, Inc. (n7.1.1-hbsmith)\n");
 
     // Find capture device
     NSArray *devices       = getDevicesWithMediaType(AVMediaTypeVideo);
